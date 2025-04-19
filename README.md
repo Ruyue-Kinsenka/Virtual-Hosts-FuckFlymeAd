@@ -1,4 +1,43 @@
+# FKUAD
+
+通过重定向广告请求网站达到屏蔽广告的目的
+
+基于Virtual Hosts项目重写了ui以及部分自定义功能加入
+
+相比传统的直接修改system/hosts**无需root权限**
+
+直接内置整合了相对应的规则
+
+
+
+**可能对系统app联网功能受影响，谨慎启用**
+
+也可以自己**导入**规则
+
+---
+
+**已经支持的功能**
+
+Flyme:
+
+- [x] 屏蔽系统app内广告
+- [ ] 屏蔽Flyme安装器安装前备案检查
+
+MIUI:
+
+- [x] 屏蔽MIUI安装器安装前备案检查
+- [x] 屏蔽MIUI系统app内广告
+- [x] 屏蔽MIUI浏览器网站访问拦截
+- [x] 屏蔽MIUI浏览器广告
+
+---
+
+以下是原有README.md
+
+
+
 ## Virtual Hosts
+
 hosts for android,implement by vpn mode,supports wildcard DNS records
 
 <a href="https://play.google.com/store/apps/details?id=com.github.xfalcon.vhosts"><img src="https://play.google.com/intl/en_us/badges/images/generic/en-play-badge.png" height="48" /></a>
@@ -10,11 +49,12 @@ Video Demo: <a target="_blank" href="https://www.youtube.com/watch?v=pHnsboAnm-A
 Virtual Hosts  app helping developers customized  hosts(/system/etc/hosts) File on android devices(no root).
 
 support wildcard DNS records.For example:
+
 ```
 127.0.0.1 a.com     |
 127.0.0.1 m.a.com   |  => 127.0.0.1 .a.com
 127.0.0.1 w.m.a.com |
-```   
+```
 
 
 
@@ -23,6 +63,7 @@ support wildcard DNS records.For example:
 <ul>
     <li>LocalVPN: <a href="https://github.com/hexene/LocalVPN/blob/master/README.md">APL 2.0</a></li>
 </ul>
+
 
 
 
