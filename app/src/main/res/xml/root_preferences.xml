@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <SwitchPreferenceCompat
+        android:key="switch_flyme"
+        android:title="@string/pref_flyme"
+        android:defaultValue="true"/>
+    <SwitchPreferenceCompat
+        android:key="switch_miui_app"
+        android:title="@string/pref_miui_app"
+        android:defaultValue="true"/>
+    <SwitchPreferenceCompat
+        android:key="switch_miui_sec"
+        android:title="@string/pref_miui_sec"
+        android:defaultValue="true"/>
+    <SwitchPreferenceCompat
+        android:key="switch_miui_browser"
+        android:title="@string/pref_miui_browser"
+        android:defaultValue="true"/>
+</PreferenceScreen>

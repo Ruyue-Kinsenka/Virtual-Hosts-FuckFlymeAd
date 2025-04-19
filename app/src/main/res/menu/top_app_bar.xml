@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/settings"
+        android:title="@string/settings"
+        android:icon="@drawable/approve"
+        app:showAsAction="never"/>
+    <item
+        android:id="@+id/boot"
+        android:title="@string/boot"
+        android:icon="@drawable/approve"
+        app:showAsAction="never"/>
+    <item
+        android:id="@+id/donation"
+        android:title="@string/donation"
+        android:icon="@drawable/approve"
+        app:showAsAction="never"/>
+</menu>
