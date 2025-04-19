@@ -1,29 +1,20 @@
-/*
- ** Copyright 2015, Mohamed Naufal
- **
- ** Licensed under the Apache License, Version 2.0 (the "License");
- ** you may not use this file except in compliance with the License.
- ** You may obtain a copy of the License at
- **
- **     http://www.apache.org/licenses/LICENSE-2.0
- **
- ** Unless required by applicable law or agreed to in writing, software
- ** distributed under the License is distributed on an "AS IS" BASIS,
- ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- ** See the License for the specific language governing permissions and
- ** limitations under the License.
- */
-
 package com.github.xfalcon.vhosts.vservice;
 
+import static android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC;
+
+import static com.github.xfalcon.vhosts.util.LogUtils.context;
+
+import android.annotation.SuppressLint;
+import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.net.VpnService;
 import android.os.Build;
@@ -31,11 +22,13 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.widget.Toast;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
-import com.github.xfalcon.vhosts.NetworkReceiver;
-import com.github.xfalcon.vhosts.R;
+import androidx.preference.PreferenceManager;
+
 import com.github.xfalcon.vhosts.SettingsFragment;
-import com.github.xfalcon.vhosts.VhostsActivity;
 import com.github.xfalcon.vhosts.util.LogUtils;
+import com.github.xfalcon.vhosts.vservice.DnsChange;
+import com.github.xfalcon.vhosts.R;
+
 import org.xbill.DNS.Address;
 
 import java.io.*;
@@ -47,65 +40,73 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReentrantLock;
 
-
 public class VhostsService extends VpnService {
     private static final String TAG = VhostsService.class.getSimpleName();
     private static final String VPN_ADDRESS = "192.0.2.111";
     private static final String VPN_ADDRESS6 = "fe80:49b1:7e4f:def2:e91f:95bf:fbb6:1111";
-    private static final String VPN_ROUTE = "0.0.0.0"; // Intercept everything
-    private static final String VPN_ROUTE6 = "::"; // Intercept everything
-    private static String VPN_DNS4 = "8.8.8.8";
-    private static String VPN_DNS6 = "2001:4860:4860::8888";
+    private static final String VPN_DNS4_DEFAULT = "8.8.8.8";
+    private static final String VPN_DNS6 = "2001:4860:4860::8888";
 
     public static final String BROADCAST_VPN_STATE = VhostsService.class.getName() + ".VPN_STATE";
     public static final String ACTION_CONNECT = VhostsService.class.getName() + ".START";
     public static final String ACTION_DISCONNECT = VhostsService.class.getName() + ".STOP";
+    public static final String ACTION_RELOAD_HOSTS = "com.github.xfalcon.vhosts.RELOAD_HOSTS";
 
-    private static boolean isRunning = false;
-    private static Thread threadHandleHosts = null;
-    private ParcelFileDescriptor vpnInterface = null;
-
+    private ParcelFileDescriptor vpnInterface;
     private PendingIntent pendingIntent;
 
     private ConcurrentLinkedQueue<Packet> deviceToNetworkUDPQueue;
     private ConcurrentLinkedQueue<Packet> deviceToNetworkTCPQueue;
     private ConcurrentLinkedQueue<ByteBuffer> networkToDeviceQueue;
     private ExecutorService executorService;
+    private Selector udpSelector, tcpSelector;
+    private ReentrantLock udpSelectorLock, tcpSelectorLock;
 
-    private Selector udpSelector;
-    private Selector tcpSelector;
-    private ReentrantLock udpSelectorLock;
-    private ReentrantLock tcpSelectorLock;
-    private NetworkReceiver netStateReceiver;
-    private static boolean isOAndBoot = false;
+    private static File currentHostsFile;
 
+    private final BroadcastReceiver reloadReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (ACTION_RELOAD_HOSTS.equals(intent.getAction())) {
+                LogUtils.i(TAG, "收到重载 Hosts 指令");
+                setupHostFile();
+            }
+        }
+    };
 
+    @SuppressLint("ForegroundServiceType")
     @Override
     public void onCreate() {
-//        registerNetReceiver();
         super.onCreate();
-        if (isOAndBoot) {
-            //android 8.0 boot
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                NotificationChannel channel = new NotificationChannel("vhosts_channel_id", "System", NotificationManager.IMPORTANCE_NONE);
-                NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                manager.createNotificationChannel(channel);
-                Notification notification = new Notification.Builder(this, "vhosts_channel_id")
-                        .setSmallIcon(R.mipmap.ic_launcher)
-                        .setContentTitle("Virtual Hosts Running")
-                        .build();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            registerReceiver(reloadReceiver, new IntentFilter(ACTION_RELOAD_HOSTS), Context.RECEIVER_NOT_EXPORTED);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel chan = new NotificationChannel(
+                    "vhosts_channel_id", "Vhosts Service", NotificationManager.IMPORTANCE_NONE);
+            ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
+                    .createNotificationChannel(chan);
+            Notification notification = new Notification.Builder(this, "vhosts_channel_id")
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setContentTitle("Virtual Hosts Running")
+                    .build();
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                startForeground(1, notification, FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+            } else {
                 startForeground(1, notification);
             }
-            isOAndBoot = false;
         }
+
         setupHostFile();
         setupVPN();
         if (vpnInterface == null) {
-            LogUtils.d(TAG, "unknow error");
+            LogUtils.e(TAG, "VPN 建立失败，停止服务");
             stopVService();
             return;
         }
-        isRunning = true;
+
         try {
             udpSelector = Selector.open();
             tcpSelector = Selector.open();
@@ -116,281 +117,210 @@ public class VhostsService extends VpnService {
             tcpSelectorLock = new ReentrantLock();
             executorService = Executors.newFixedThreadPool(5);
             executorService.submit(new UDPInput(networkToDeviceQueue, udpSelector, udpSelectorLock));
-            executorService.submit(new UDPOutput(deviceToNetworkUDPQueue, networkToDeviceQueue, udpSelector, udpSelectorLock, this));
+            executorService.submit(new UDPOutput(deviceToNetworkUDPQueue, networkToDeviceQueue,
+                    udpSelector, udpSelectorLock, this));
             executorService.submit(new TCPInput(networkToDeviceQueue, tcpSelector, tcpSelectorLock));
-            executorService.submit(new TCPOutput(deviceToNetworkTCPQueue, networkToDeviceQueue, tcpSelector, tcpSelectorLock, this));
+            executorService.submit(new TCPOutput(deviceToNetworkTCPQueue, networkToDeviceQueue,
+                    tcpSelector, tcpSelectorLock, this));
             executorService.submit(new VPNRunnable(vpnInterface.getFileDescriptor(),
                     deviceToNetworkUDPQueue, deviceToNetworkTCPQueue, networkToDeviceQueue));
-            LocalBroadcastManager.getInstance(this).sendBroadcast(new Intent(BROADCAST_VPN_STATE).putExtra("running", true));
-            LogUtils.i(TAG, "Started");
+
+            LocalBroadcastManager.getInstance(this)
+                    .sendBroadcast(new Intent(BROADCAST_VPN_STATE).putExtra("running", true));
+            LogUtils.i(TAG, "Service 启动完成");
         } catch (Exception e) {
-            // TODO: Here and elsewhere, we should explicitly notify the user of any errors
-            // and suggest that they stop the service, since we can't do it ourselves
-            LogUtils.e(TAG, "Error starting service", e);
+            LogUtils.e(TAG, "启动线程失败", e);
             stopVService();
         }
     }
 
-
     private void setupHostFile() {
-        SharedPreferences settings = androidx.preference.PreferenceManager.getDefaultSharedPreferences(this);
-        final boolean is_net = settings.getBoolean(SettingsFragment.IS_NET, false);
-        String uri_path = settings.getString(SettingsFragment.HOSTS_URI, null);
+        InputStream is = null;
         try {
-            final InputStream inputStream;
-            if (is_net)
-                inputStream = openFileInput(SettingsFragment.NET_HOST_FILE);
-            else
-                inputStream = getContentResolver().openInputStream(Uri.parse(uri_path));
-            new Thread() {
-                public void run() {
-                    if (DnsChange.handle_hosts(inputStream) == 0) {
-                        Looper.prepare();
-                        if(is_net){
-                            Toast.makeText(getApplicationContext(), R.string.no_net_record, Toast.LENGTH_LONG).show();
-                        }else{
-                            Toast.makeText(getApplicationContext(), R.string.no_local_record, Toast.LENGTH_LONG).show();
-                        }
-                        Looper.loop();
+            if (currentHostsFile != null && currentHostsFile.exists()) {
+                LogUtils.i(TAG, "加载合并后的 Hosts: " + currentHostsFile.getAbsolutePath());
+                is = new FileInputStream(currentHostsFile);
+            } else {
+                SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(this);
+                boolean isNet = settings.getBoolean(SettingsFragment.IS_NET, false);
+                if (isNet) {
+                    LogUtils.i(TAG, "加载网络 Hosts 文件");
+                    is = openFileInput(SettingsFragment.NET_HOST_FILE);
+                } else {
+                    String uriString = settings.getString(SettingsFragment.HOSTS_URI, null);
+                    if (uriString != null) {
+                        LogUtils.i(TAG, "加载本地选中文件: " + uriString);
+                        is = getContentResolver().openInputStream(Uri.parse(uriString));
                     }
                 }
-            }.start();
+            }
+
+            if (is == null) {
+                LogUtils.w(TAG, "未找到任何 Hosts 文件，跳过加载");
+                return;
+            }
+
+            final InputStream finalIs = is;
+            new Thread(() -> {
+                int result = DnsChange.handle_hosts(finalIs);
+                if (result == 0) {
+                    Looper.prepare();
+                    Toast.makeText(getApplicationContext(),
+                            "Hosts文件中无可用记录", Toast.LENGTH_LONG).show();
+                    Looper.loop();
+                }
+            }).start();
 
         } catch (Exception e) {
-            if(is_net){
-                Toast.makeText(getApplicationContext(), R.string.no_net_record, Toast.LENGTH_LONG).show();
-            }else{
-                Toast.makeText(getApplicationContext(), R.string.no_local_record, Toast.LENGTH_LONG).show();
-            }
-            LogUtils.e(TAG, "error setup host file service", e);
+            LogUtils.e(TAG, "设置 Hosts 文件失败", e);
+            new Thread(() -> {
+                Looper.prepare();
+                Toast.makeText(getApplicationContext(),
+                        "加载 Hosts 失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                Looper.loop();
+            }).start();
         }
     }
 
     private void setupVPN() {
         if (vpnInterface == null) {
             Builder builder = new Builder();
-            builder.addAddress(VPN_ADDRESS, 32);
-            builder.addAddress(VPN_ADDRESS6, 128);
+            builder.addAddress(VPN_ADDRESS, 32)
+                    .addAddress(VPN_ADDRESS6, 128);
 
-
-            SharedPreferences settings = androidx.preference.PreferenceManager.getDefaultSharedPreferences(this);
-            String VPN_DNS4_DEFAULT = getString(R.string.dns_server);
-            boolean is_cus_dns = settings.getBoolean(SettingsFragment.IS_CUS_DNS, false);
-            String VPN_DNS4 = VPN_DNS4_DEFAULT;
-            if (is_cus_dns) {
-                VPN_DNS4 = settings.getString(SettingsFragment.IPV4_DNS, VPN_DNS4_DEFAULT);
-                try {
-                    Address.getByAddress(VPN_DNS4);
-                } catch (Exception e) {
-                    VPN_DNS4 = VPN_DNS4_DEFAULT;
-                    LogUtils.e(TAG, e.getMessage(), e);
-                }
+            SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(this);
+            boolean isCusDns = settings.getBoolean(SettingsFragment.IS_CUS_DNS, false);
+            String dns4 = isCusDns
+                    ? settings.getString(SettingsFragment.IPV4_DNS, VPN_DNS4_DEFAULT)
+                    : VPN_DNS4_DEFAULT;
+            try {
+                Address.getByAddress(dns4);
+            } catch (Exception e) {
+                dns4 = VPN_DNS4_DEFAULT;
             }
+            builder.addRoute(dns4, 32)
+                    .addRoute(VPN_DNS6, 128)
+                    .addDnsServer(dns4)
+                    .addDnsServer(VPN_DNS6);
 
-            LogUtils.d(TAG, "use dns:" + VPN_DNS4);
-            builder.addRoute(VPN_DNS4, 32);
-            builder.addRoute(VPN_DNS6, 128);
-//            builder.addRoute(VPN_ROUTE,0);
-//            builder.addRoute(VPN_ROUTE6,0);
-            builder.addDnsServer(VPN_DNS4);
-            builder.addDnsServer(VPN_DNS6);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                String[] whiteList = {"com.android.vending", "com.google.android.apps.docs", "com.google.android.apps.photos", "com.google.android.gm", "com.google.android.apps.translate"};
-                for (String white : whiteList) {
+                String[] whiteList = {
+                        "com.android.vending", "com.google.android.gm",
+                        "com.google.android.apps.photos", "com.google.android.apps.docs",
+                        "com.google.android.apps.translate"
+                };
+                for (String pkg : whiteList) {
                     try {
-                        builder.addDisallowedApplication(white);
-                    } catch (PackageManager.NameNotFoundException e) {
-                        LogUtils.e(TAG, e.getMessage(), e);
+                        builder.addDisallowedApplication(pkg);
+                    } catch (Exception ignored) {
                     }
-
                 }
             }
-            vpnInterface = builder.setSession(getString(R.string.app_name)).setConfigureIntent(pendingIntent).establish();
+            vpnInterface = builder
+                    .setSession(getString(R.string.app_name))
+                    .setConfigureIntent(pendingIntent)
+                    .establish();
         }
-    }
-
-    private void registerNetReceiver() {
-        //wifi 4G state
-//        IntentFilter filter = new IntentFilter();
-//        filter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
-//        filter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
-//        filter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
-//        netStateReceiver = new NetworkReceiver();
-//        registerReceiver(netStateReceiver, filter);
-
-    }
-
-    private void unregisterNetReceiver() {
-//        if (netStateReceiver != null) {
-//            unregisterReceiver(netStateReceiver);
-//            netStateReceiver = null;
-//        }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
-            if (ACTION_DISCONNECT.equals(intent.getAction())) {
+            String action = intent.getAction();
+            if (ACTION_DISCONNECT.equals(action)) {
                 stopVService();
                 return START_NOT_STICKY;
+            } else if (ACTION_RELOAD_HOSTS.equals(action)) {
+                new Thread(this::setupHostFile).start();
             }
         }
         return START_STICKY;
     }
 
     public static boolean isRunning() {
-
-        return isRunning;
-    }
-
-    public static void startVService(Context context, int method) {
-        Intent intent = VhostsService.prepare(context);
-        if (intent != null) {
-            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
-            LogUtils.e(TAG, "Run Fail On Boot");
-        }
-        try {
-            if (method == 2 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                isOAndBoot = true;
-                context.startForegroundService(new Intent(context, VhostsService.class).setAction(ACTION_CONNECT));
-            } else {
-                isOAndBoot = false;
-                context.startService(new Intent(context, VhostsService.class).setAction(ACTION_CONNECT));
+        ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        if (manager != null) {
+            for (ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
+                if (VhostsService.class.getName().equals(service.service.getClassName())) {
+                    return true;
+                }
             }
-        } catch (RuntimeException e) {
-            LogUtils.e(TAG, "Not allowed to start service Intent", e);
+        }
+        return false;
+    }
+
+    public static void startVService(Context ctx, int method) {
+        Intent prep = VhostsService.prepare(ctx);
+        if (prep != null) {
+            prep.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(prep);
+        }
+        Intent svc = new Intent(ctx, VhostsService.class).setAction(ACTION_CONNECT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && method == 2) {
+            ctx.startForegroundService(svc);
+        } else {
+            ctx.startService(svc);
         }
     }
 
-    public static void stopVService(Context context) {
-        context.startService(new Intent(context, VhostsService.class).setAction(VhostsService.ACTION_DISCONNECT));
+    public static void stopVService(Context ctx) {
+        ctx.startService(new Intent(ctx, VhostsService.class).setAction(ACTION_DISCONNECT));
     }
 
     private void stopVService() {
-        if (threadHandleHosts != null) threadHandleHosts.interrupt();
-//        unregisterNetReceiver();
-        if (executorService != null) executorService.shutdownNow();
-        isRunning = false;
+        stopForeground(true);
+        if (executorService != null) {
+            executorService.shutdownNow();
+        }
         cleanup();
+        LocalBroadcastManager.getInstance(this)
+                .sendBroadcast(new Intent(BROADCAST_VPN_STATE).putExtra("running", false));
         stopSelf();
-        LogUtils.d(TAG, "Stopping");
-    }
-
-    @Override
-    public void onRevoke() {
-        stopVService();
-        super.onRevoke();
+        LogUtils.i(TAG, "Service 已停止");
     }
 
     @Override
     public void onDestroy() {
-        stopVService();
+        unregisterReceiver(reloadReceiver);
         super.onDestroy();
     }
 
     private void cleanup() {
-        udpSelectorLock = null;
-        tcpSelectorLock = null;
-        deviceToNetworkTCPQueue = null;
+        if (vpnInterface != null) {
+            try {
+                vpnInterface.close();
+            } catch (IOException e) {
+                LogUtils.e(TAG, "关闭 VPN 接口失败", e);
+            }
+            vpnInterface = null;
+        }
+        closeQuietly(udpSelector, tcpSelector);
         deviceToNetworkUDPQueue = null;
+        deviceToNetworkTCPQueue = null;
         networkToDeviceQueue = null;
         ByteBufferPool.clear();
-        closeResources(udpSelector, tcpSelector, vpnInterface);
     }
 
-    // TODO: Move this to a "utils" class for reuse
-    private static void closeResources(Closeable... resources) {
-        for (Closeable resource : resources) {
+    private static void closeQuietly(AutoCloseable... resources) {
+        for (AutoCloseable res : resources) {
             try {
-                resource.close();
-            } catch (Exception e) {
-                LogUtils.e(TAG, e.toString(), e);
+                if (res != null) res.close();
+            } catch (Exception ignored) {
             }
         }
     }
 
-    private static class VPNRunnable implements Runnable {
-        private static final String TAG = VPNRunnable.class.getSimpleName();
-
-        private FileDescriptor vpnFileDescriptor;
-
-        private ConcurrentLinkedQueue<Packet> deviceToNetworkUDPQueue;
-        private ConcurrentLinkedQueue<Packet> deviceToNetworkTCPQueue;
-        private ConcurrentLinkedQueue<ByteBuffer> networkToDeviceQueue;
-
-        public VPNRunnable(FileDescriptor vpnFileDescriptor,
-                           ConcurrentLinkedQueue<Packet> deviceToNetworkUDPQueue,
-                           ConcurrentLinkedQueue<Packet> deviceToNetworkTCPQueue,
-                           ConcurrentLinkedQueue<ByteBuffer> networkToDeviceQueue) {
-            this.vpnFileDescriptor = vpnFileDescriptor;
-            this.deviceToNetworkUDPQueue = deviceToNetworkUDPQueue;
-            this.deviceToNetworkTCPQueue = deviceToNetworkTCPQueue;
-            this.networkToDeviceQueue = networkToDeviceQueue;
-        }
-
-        @Override
-        public void run() {
-            LogUtils.i(TAG, "Started");
-
-            FileChannel vpnInput = new FileInputStream(vpnFileDescriptor).getChannel();
-            FileChannel vpnOutput = new FileOutputStream(vpnFileDescriptor).getChannel();
-            try {
-                ByteBuffer bufferToNetwork = null;
-                boolean dataSent = true;
-                boolean dataReceived;
-                while (!Thread.interrupted()) {
-                    if (dataSent)
-                        bufferToNetwork = ByteBufferPool.acquire();
-                    else
-                        bufferToNetwork.clear();
-
-                    // TODO: Block when not connected
-                    int readBytes = vpnInput.read(bufferToNetwork);
-                    if (readBytes > 0) {
-                        dataSent = true;
-                        bufferToNetwork.flip();
-                        Packet packet = new Packet(bufferToNetwork);
-                        if (packet.isUDP()) {
-                            deviceToNetworkUDPQueue.offer(packet);
-                        } else if (packet.isTCP()) {
-                            deviceToNetworkTCPQueue.offer(packet);
-                        } else {
-                            LogUtils.w(TAG, "Unknown packet type");
-                            dataSent = false;
-                        }
-                    } else {
-                        dataSent = false;
-                    }
-                    ByteBuffer bufferFromNetwork = networkToDeviceQueue.poll();
-                    if (bufferFromNetwork != null) {
-                        bufferFromNetwork.flip();
-                        while (bufferFromNetwork.hasRemaining())
-                            try {
-                                vpnOutput.write(bufferFromNetwork);
-                            } catch (Exception e) {
-                                LogUtils.e(TAG, e.toString(), e);
-                                break;
-                            }
-                        dataReceived = true;
-                        ByteBufferPool.release(bufferFromNetwork);
-                    } else {
-                        dataReceived = false;
-                    }
-
-                    // TODO: Sleep-looping is not very battery-friendly, consider blocking instead
-                    // Confirm if throughput with ConcurrentQueue is really higher compared to BlockingQueue
-                    if (!dataSent && !dataReceived)
-                        Thread.sleep(11);
-                }
-            } catch (InterruptedException e) {
-                LogUtils.i(TAG, "Stopping");
-            } catch (IOException e) {
-                LogUtils.w(TAG, e.toString(), e);
-            } finally {
-                closeResources(vpnInput, vpnOutput);
-            }
+    public static void reloadHosts(Context context) {
+        Intent i = new Intent(context, VhostsService.class).setAction(ACTION_RELOAD_HOSTS);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(i);
+        } else {
+            context.startService(i);
         }
     }
 
+    public static void reloadHosts(Context context, String hostsPath) {
+        currentHostsFile = new File(hostsPath);
+        reloadHosts(context);
+    }
 }

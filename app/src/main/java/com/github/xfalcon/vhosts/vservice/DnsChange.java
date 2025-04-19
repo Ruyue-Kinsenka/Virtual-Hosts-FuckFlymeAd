@@ -20,6 +20,7 @@ package com.github.xfalcon.vhosts.vservice;
 
 import com.github.xfalcon.vhosts.util.LogUtils;
 import org.xbill.DNS.*;
+import org.xbill.DNS.Record;
 
 import java.io.BufferedReader;
 import java.io.IOException;

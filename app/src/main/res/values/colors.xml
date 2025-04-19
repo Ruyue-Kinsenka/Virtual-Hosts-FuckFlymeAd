@@ -17,4 +17,15 @@
     <color name="fab_blackNormal">#29DDD6</color>
     <color name="fb_blackPressed">#28B9B3</color>
     <color name="ic_launcher_background">#2ecc71</color>
+    <color name="surface">#FFFBFE</color>
+    <color name="onSurface">#1C1B1F</color>
+    <color name="surfaceContainer">#F3EDF6</color>
+    <color name="primaryContainer">#EADDFF</color>
+    <color name="onPrimaryContainer">#21005E</color>
+    <color name="secondaryContainer">#E8DEF8</color>
+    <color name="surface_container">#F5F5F5</color>
+    <color name="on_surface_variant">#656565</color>
+    <color name="white">#FFFFFF</color>
+    <color name="grey">#FFF5F5F5</color>
+
 </resources>

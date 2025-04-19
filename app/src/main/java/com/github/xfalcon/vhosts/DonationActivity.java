@@ -88,7 +88,9 @@ public class DonationActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_donation);
-        Objects.requireNonNull(getSupportActionBar()).setDisplayHomeAsUpEnabled(true);
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        }
         CardView cv_alipay = (CardView) findViewById(R.id.cv_alipay);
         CardView cv_wexin = (CardView) findViewById(R.id.cv_wexin);
         CardView cv_paypal = (CardView) findViewById(R.id.cv_paypal);

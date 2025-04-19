@@ -23,4 +23,17 @@
 
     </style>
 
+    <style name="Theme.App" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSurfaceContainerHighest">@color/surface_container</item>
+    </style>
+
+    <style name="Divider" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">1px</item>
+        <item name="android:background">#1F000000</item>
+        <item name="android:layout_marginVertical">8dp</item>
+    </style>
+
 </resources>

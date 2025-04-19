@@ -21,8 +21,6 @@ package com.github.xfalcon.vhosts.util;
 import java.io.OutputStream;
 
 public class FileUtils {
-
-
     public static boolean writeFile(OutputStream o, String content) throws Exception {
         o.write(content.getBytes());
         o.flush();

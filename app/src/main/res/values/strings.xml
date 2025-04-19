@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Virtual Hosts</string>
+    <string name="app_name">FKUFAD</string>
     <string name="action_settings">Settings</string>
     <string name="update_button">update</string>
     <string name="update_hosts">select ip update hosts</string>
@@ -60,5 +60,14 @@
 
     <string name="no_net_record">warning! net hosts file no dns record, please check</string>
     <string name="no_local_record">warning! local hosts file no dns record, please check</string>
+    <string name="pref_flyme">Flyme广告屏蔽</string>
+    <string name="pref_miui_app">MIUI应用广告</string>
+    <string name="pref_miui_sec">MIUI安全服务</string>
+    <string name="pref_miui_browser">MIUI浏览器广告</string>
+
+    <string name="boot">boot</string>
+    <string name="donation">donation</string>
+    <string name="settings">settings</string>
+
 
 </resources>

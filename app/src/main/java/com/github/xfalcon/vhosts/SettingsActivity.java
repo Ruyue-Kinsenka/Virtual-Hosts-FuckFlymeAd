@@ -25,8 +25,6 @@ import androidx.core.app.NavUtils;
 
 public class SettingsActivity extends AppCompatActivity{
 
-
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         setTheme(R.style.AppPreferenceTheme);
@@ -37,7 +35,6 @@ public class SettingsActivity extends AppCompatActivity{
             actionBar.setDisplayHomeAsUpEnabled(true);
         }
     }
-
       @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();

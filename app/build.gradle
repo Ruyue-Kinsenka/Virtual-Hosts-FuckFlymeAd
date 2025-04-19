@@ -1,17 +1,24 @@
 plugins {
     id 'com.android.application'
     id 'com.google.gms.google-services'
+    id 'org.jetbrains.kotlin.android'
 }
 android {
-    compileSdk 33
+    compileSdk 35
     defaultConfig {
         applicationId "com.github.xfalcon.vhosts"
-        minSdkVersion 19
-        targetSdkVersion 33
+        namespace "com.github.xfalcon.vhosts"
+        minSdkVersion 21
+        targetSdkVersion 34
         versionCode 42
         versionName "2.2.2"
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+    }
+    sourceSets {
+        main {
+            assets.srcDirs = ['src/main/assets/']
+        }
     }
     productFlavors.all {
         flavor -> flavor.manifestPlaceholders = [Market_CHANNEL_VALUE: name]
@@ -46,6 +53,10 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
 }
 
 dependencies {
@@ -60,6 +71,10 @@ dependencies {
     implementation 'com.github.zcweng:switch-button:0.0.3@aar'
     implementation 'com.github.clans:fab:1.6.4'
     implementation 'com.android.billingclient:billing:6.0.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.preference:preference:1.2.1'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.activity:activity:1.10.1'
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'com.android.support.test:rules:1.0.2'

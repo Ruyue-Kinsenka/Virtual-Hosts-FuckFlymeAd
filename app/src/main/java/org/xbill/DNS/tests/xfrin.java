@@ -4,6 +4,7 @@ package org.xbill.DNS.tests;
 
 import java.util.*;
 import org.xbill.DNS.*;
+import org.xbill.DNS.Record;
 
 public class xfrin {
 
@@ -59,13 +60,13 @@ main(String [] args) throws Exception {
 
 	if (server == null) {
 		Lookup l = new Lookup(zname, Type.NS);
-		Record [] ns = l.run();
+		Record[] ns = l.run();
 		if (ns == null) {
 			System.out.println("failed to look up NS record: " +
 					   l.getErrorString());
 			System.exit(1);
 		}
-		server = ns[0].rdataToString();
+		server = ns[0].toString();
 		System.out.println("sending to server '" + server + "'");
 	}
 
